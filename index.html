@@ -231,6 +231,7 @@ button{font:inherit;cursor:pointer}
       <span class="lbl">While you rest</span>
       <div class="name" id="tFiller"></div>
     </div>
+    <button class="dismiss" id="tDone">Done</button>
     <button class="dismiss" id="tSkip">Skip</button>
   </div>
   <div class="bar"><span id="tBar"></span></div>
@@ -244,45 +245,46 @@ button{font:inherit;cursor:pointer}
 
 /* ---------- programme templates (hardcoded by design; edit here) ---------- */
 const REST = 90;
+const FILLER_SETS = 3;      // per filler, per session; dosed one set per rest window
 
 const SESSIONS = {
   A: {
     name: "Squat / hinge / full upper",
-    fillers: ["SL calf raise over step, 3 x 8 ES", "Side plank, 3 x 30s ES"],
+    fillers: [ {n:"SL calf raise over step", dose:"8 ES"}, {n:"Side plank", dose:"30s ES"} ],
     ex: [
-      { n:"Landmine squat",              sets:3, reps:8, inc:5   },
-      { n:"Hip thrust",                  sets:3, reps:8, inc:5   },
-      { n:"Nordic curl (band-assisted)", sets:3, reps:4, inc:0   },
-      { n:"Pull-up",                     sets:3, reps:6, inc:2.5 },
-      { n:"DB chest press",              sets:3, reps:8, inc:2.5 },
-      { n:"T-bar row",                   sets:3, reps:8, inc:5   },
-      { n:"Smith shoulder press",        sets:3, reps:8, inc:2.5 }
+      { n:"Landmine squat",              sets:3, reps:8, inc:5,   cat:"squat" },
+      { n:"Hip thrust",                  sets:3, reps:8, inc:5,   cat:"hinge" },
+      { n:"Nordic curl (band-assisted)", sets:3, reps:4, inc:0,   cat:"hinge" },
+      { n:"Pull-up",                     sets:3, reps:6, inc:2.5, cat:"pull" },
+      { n:"DB chest press",              sets:3, reps:8, inc:2.5, cat:"push" },
+      { n:"T-bar row",                   sets:3, reps:8, inc:5,   cat:"pull" },
+      { n:"Smith shoulder press",        sets:3, reps:8, inc:2.5, cat:"push" }
     ]
   },
   B: {
     name: "Unilateral / hinge / full upper",
-    fillers: ["Copenhagen hold, 3 x 30s ES", "Dead bug, 3 x 10 ES"],
+    fillers: [ {n:"Copenhagen hold", dose:"30s ES"}, {n:"Dead bug", dose:"10 ES"} ],
     ex: [
-      { n:"DB KOT front-foot-elev. split squat", sets:3, reps:8,  inc:2.5, es:true },
-      { n:"Romanian deadlift",                   sets:3, reps:8,  inc:5   },
-      { n:"Lat pulldown",                        sets:3, reps:8,  inc:5   },
-      { n:"Dips",                                sets:3, reps:6,  inc:2.5 },
-      { n:"Neutral grip cable row",              sets:3, reps:8,  inc:5   },
-      { n:"DB Arnold press",                     sets:3, reps:8,  inc:2.5 },
-      { n:"KB Cossack squat",                    sets:3, reps:8,  inc:4, es:true }
+      { n:"DB KOT front-foot-elev. split squat", sets:3, reps:8,  inc:2.5, es:true, cat:"squat" },
+      { n:"Romanian deadlift",                   sets:3, reps:8,  inc:5,   cat:"hinge" },
+      { n:"Lat pulldown",                        sets:3, reps:8,  inc:5,   cat:"pull" },
+      { n:"Dips",                                sets:3, reps:6,  inc:2.5, cat:"push" },
+      { n:"Neutral grip cable row",              sets:3, reps:8,  inc:5,   cat:"pull" },
+      { n:"DB Arnold press",                     sets:3, reps:8,  inc:2.5, cat:"push" },
+      { n:"KB Cossack squat",                    sets:3, reps:8,  inc:4, es:true, cat:"squat" }
     ]
   },
   C: {
     name: "Heavy knee / incline upper",
-    fillers: ["SL calf raise over step, 3 x 8 ES", "Pallof press with band, 3 x 10 ES"],
+    fillers: [ {n:"SL calf raise over step", dose:"8 ES"}, {n:"Pallof press with band", dose:"10 ES"} ],
     ex: [
-      { n:"Leg press",                    sets:3, reps:6,  inc:5   },
-      { n:"Back extension",               sets:3, reps:8,  inc:5   },
-      { n:"Chin-up",                      sets:3, reps:6,  inc:2.5 },
-      { n:"Incline DB press",             sets:3, reps:6,  inc:2.5 },
-      { n:"DB wide row, incline bench",   sets:3, reps:8,  inc:2.5 },
-      { n:"DB push press",                sets:3, reps:6,  inc:2.5 },
-      { n:"Straight arm cable pulldown",  sets:3, reps:10, inc:5   }
+      { n:"Leg press",                    sets:3, reps:6,  inc:5,   cat:"squat" },
+      { n:"Back extension",               sets:3, reps:8,  inc:5,   cat:"hinge" },
+      { n:"Chin-up",                      sets:3, reps:6,  inc:2.5, cat:"pull" },
+      { n:"Incline DB press",             sets:3, reps:6,  inc:2.5, cat:"push" },
+      { n:"DB wide row, incline bench",   sets:3, reps:8,  inc:2.5, cat:"pull" },
+      { n:"DB push press",                sets:3, reps:6,  inc:2.5, cat:"push" },
+      { n:"Straight arm cable pulldown",  sets:3, reps:10, inc:5,   cat:"pull" }
     ]
   }
 };
@@ -327,19 +329,93 @@ const Store = {
     this._setStatus("saving");
     try{
       localStorage.setItem(KEY, JSON.stringify(obj));
+      this.lastSavedAt = new Date();
       this._setStatus("saved");
     }catch(e){ this._setStatus("failed"); }    // quota / private mode
   }
 };
 
 /* ---------- state ---------- */
-let S = { log: [], order: {}, lastSession: null };
+let S = { log: [], order: {}, lastSession: null, fill: {} };
 let view = { screen:"picker", session:null, open:null, editing:null, confirming:false, skipping:null };
 
 const today = () => new Date().toISOString().slice(0,10);
 const instKey = (s) => today()+"|"+s;
-function save(){ Store.write(S); }
-window.addEventListener("pagehide", ()=>{ try{ Store.write(S); }catch(e){} });
+function save(){ Store.write(S); Sync.schedule(); }
+
+/* ---------- GitHub sync: gym-log.json committed to your repo ----------
+   Token is a fine-grained PAT (contents:RW on the data repo only) and is
+   stored only in this browser's localStorage, never sent anywhere except
+   api.github.com. Every push is a commit: full version history for free. */
+const SYNCKEY = "gymtracker:sync";
+const Sync = {
+  cfg:null, sha:null, busy:false, dirty:false, timer:null,
+  status:"off",            // off|idle|pending|syncing|synced|failed|auth
+  lastAt:null, lastErr:"",
+  loadCfg(){ try{ this.cfg = JSON.parse(localStorage.getItem(SYNCKEY)); }catch(e){ this.cfg=null; }
+             if(this.cfg) this.status="idle"; },
+  saveCfg(c){ this.cfg=c; this.sha=null; localStorage.setItem(SYNCKEY, JSON.stringify(c));
+              this.status="idle"; },
+  clearCfg(){ this.cfg=null; localStorage.removeItem(SYNCKEY); this.status="off"; },
+  url(){ const c=this.cfg;
+         return "https://api.github.com/repos/"+c.owner+"/"+c.repo+"/contents/"+c.path; },
+  headers(){ return { "Authorization":"Bearer "+this.cfg.token,
+                      "Accept":"application/vnd.github+json",
+                      "X-GitHub-Api-Version":"2022-11-28" }; },
+  b64enc(s){ return btoa(unescape(encodeURIComponent(s))); },
+  b64dec(s){ return decodeURIComponent(escape(atob(s.replace(/\n/g,"")))); },
+
+  schedule(){ if(!this.cfg) return;
+    this.dirty=true; this.status="pending"; paintBadges();
+    clearTimeout(this.timer); this.timer=setTimeout(()=>this.flush(), 4000); },
+
+  async fetchSha(){
+    const r = await fetch(this.url()+"?ref="+this.cfg.branch, { headers:this.headers() });
+    if(r.status===404){ this.sha=null; return {exists:false}; }
+    if(r.status===401 || r.status===403) throw {auth:true};
+    if(!r.ok) throw new Error("GET "+r.status);
+    const j = await r.json(); this.sha = j.sha; return {exists:true, json:j};
+  },
+
+  async flush(){
+    if(!this.cfg || this.busy || !this.dirty) return;
+    this.busy=true; this.status="syncing"; paintBadges();
+    try{
+      this.dirty=false;
+      if(this.sha===null) await this.fetchSha().catch(e=>{ if(e.auth) throw e; });
+      const body = { message:"log: "+today()+" ("+S.log.length+" records)",
+                     content:this.b64enc(JSON.stringify(S,null,2)),
+                     branch:this.cfg.branch };
+      if(this.sha) body.sha = this.sha;
+      let r = await fetch(this.url(), { method:"PUT", headers:this.headers(),
+                                        body:JSON.stringify(body) });
+      if(r.status===409 || r.status===422){       // stale sha: refresh once, retry
+        await this.fetchSha();
+        if(this.sha) body.sha=this.sha; else delete body.sha;
+        r = await fetch(this.url(), { method:"PUT", headers:this.headers(),
+                                      body:JSON.stringify(body) });
+      }
+      if(r.status===401 || r.status===403) throw {auth:true};
+      if(!r.ok) throw new Error("PUT "+r.status);
+      const j = await r.json(); this.sha = j.content ? j.content.sha : null;
+      this.lastAt = new Date(); this.status="synced";
+    }catch(e){
+      this.dirty=true;                             // keep queued for retry
+      this.status = e && e.auth ? "auth" : "failed";
+      this.lastErr = e && e.auth ? "token rejected" : String(e.message||e);
+    }
+    this.busy=false; paintBadges();
+  },
+
+  async pull(){
+    const got = await this.fetchSha();
+    if(!got.exists) return null;
+    return JSON.parse(this.b64dec(got.json.content));
+  }
+};
+window.addEventListener("online", ()=>Sync.flush());
+window.Sync = Sync;   // exposed for debugging and testing
+window.addEventListener("pagehide", ()=>{ try{ Store.write(S); Sync.flush(); }catch(e){} });
 
 /* ---------- derived ---------- */
 function setsFor(session, exName, date){
@@ -386,13 +462,50 @@ function lastDoneDate(session){
 }
 const fmt = n => (n===null||n===undefined||n==="") ? "" : (Math.round(n*100)/100).toString();
 
+/* ---------- fillers: one set per rest, alternating, 3 sets each ---------- */
+function fillerCounts(session){
+  const k = instKey(session);
+  if(!S.fill[k]) S.fill[k] = {};
+  const c = S.fill[k];
+  SESSIONS[session].fillers.forEach(f => { if(!(f.n in c)) c[f.n] = 0; });
+  return c;
+}
+function fillerDue(session){
+  const c = fillerCounts(session);
+  const fs = SESSIONS[session].fillers;
+  const remaining = fs.filter(f => c[f.n] < FILLER_SETS);
+  if(!remaining.length) return null;
+  // fewest-done first; tie broken by list order -> natural alternation
+  remaining.sort((a,b) => c[a.n] - c[b.n]);
+  return { f: remaining[0], done: c[remaining[0].n] };
+}
+function fillerTick(session, name){
+  const c = fillerCounts(session);
+  c[name] = Math.min(FILLER_SETS, (c[name]||0) + 1);
+  save();
+}
+
 /* ---------- rest timer ---------- */
 let tInt=null, tLeft=0;
 const elT = document.getElementById("timer");
+function paintFiller(){
+  const s = view.session; if(!s) return;
+  const box = document.getElementById("tFiller");
+  const btn = document.getElementById("tDone");
+  const due = fillerDue(s);
+  if(!due){
+    box.textContent = "Fillers complete. Just rest.";
+    btn.classList.add("hidden");
+    return;
+  }
+  box.innerHTML = esc(due.f.n) + " &middot; " + esc(due.f.dose) +
+    ' <span class="lbl" style="display:block;margin-top:2px">Set ' + (due.done+1) + " of " + FILLER_SETS + "</span>";
+  btn.classList.remove("hidden");
+  btn.onclick = ()=>{ fillerTick(s, due.f.n); paintFiller(); };
+}
 function startTimer(){
   const s = view.session; if(!s) return;
-  const f = SESSIONS[s].fillers;
-  document.getElementById("tFiller").textContent = f[Math.floor(Math.random()*f.length)];
+  paintFiller();
   tLeft = REST; elT.classList.add("up"); elT.classList.remove("done");
   clearInterval(tInt); paintTimer();
   tInt = setInterval(()=>{
@@ -490,7 +603,12 @@ function exportCSV(){
 const app = document.getElementById("app");
 const esc = s => String(s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-function render(){ view.screen==="picker" ? renderPicker() : renderSession(); }
+function render(){
+  if(view.screen==="history") return renderHistory();
+  if(view.screen==="sync") return renderSync();
+  if(view.screen==="exdetail") return renderExDetail();
+  view.screen==="picker" ? renderPicker() : renderSession();
+}
 
 function renderPicker(){
   const nx = nextSession();
@@ -518,13 +636,214 @@ function renderPicker(){
         </button>`;
       }).join("")}
     </div>
-    <div class="foot"><button class="btn ghost full" id="csv">Export CSV</button></div>
-    <div class="tiny">${S.log.length} records stored</div>`;
+    <div class="foot">
+      <button class="btn ghost full" id="hist">History</button>
+      <button class="btn ghost full" id="csv">Export CSV</button>
+      <button class="btn ghost full" id="sync">Sync</button>
+    </div>
+    <div class="tiny">${S.log.length} records stored${Store.lastSavedAt ? " &middot; saved "+Store.lastSavedAt.toTimeString().slice(0,5) : ""}</div>`;
   app.querySelectorAll(".card").forEach(b=>b.onclick=()=>{
     view = { screen:"session", session:b.dataset.s, open:null, editing:null, confirming:false, skipping:null };
     window.scrollTo(0,0); render();
   });
   document.getElementById("csv").onclick = exportCSV;
+  document.getElementById("hist").onclick = ()=>{ view={screen:"history"}; window.scrollTo(0,0); render(); };
+  document.getElementById("sync").onclick = ()=>{ view={screen:"sync"}; window.scrollTo(0,0); render(); };
+}
+
+/* ---------- sync settings ---------- */
+function renderSync(){
+  const c = Sync.cfg || { owner:"", repo:"", branch:"main", path:"gym-log.json", token:"" };
+  app.innerHTML = `
+    <header class="mast" style="border:none;padding-bottom:0;margin-bottom:0">
+      <button class="back" id="back">&larr; Sessions</button><div class="rule"></div>
+      <span class="lbl" id="saveState"></span></header>
+    <div class="shead" style="margin-top:10px">
+      <span style="flex:1"><span style="font-size:15px">GitHub sync</span><br>
+      <span class="lbl">Log commits to a repo as gym-log.json</span></span>
+    </div>
+    <div class="progress-line"><span style="width:100%"></span></div>
+    <div class="set"><span class="n">OWNER</span><span class="fld"><input id="f-owner" value="${esc(c.owner)}" autocapitalize="none"></span></div>
+    <div class="set"><span class="n">REPO</span><span class="fld"><input id="f-repo" value="${esc(c.repo)}" autocapitalize="none"></span></div>
+    <div class="set"><span class="n">BRANCH</span><span class="fld"><input id="f-branch" value="${esc(c.branch)}" autocapitalize="none"></span></div>
+    <div class="set"><span class="n">PATH</span><span class="fld"><input id="f-path" value="${esc(c.path)}" autocapitalize="none"></span></div>
+    <div class="set"><span class="n">TOKEN</span><span class="fld"><input id="f-token" type="password" value="${esc(c.token)}" autocapitalize="none" placeholder="fine-grained PAT, contents: RW"></span></div>
+    <div class="row-btns" style="margin-top:14px">
+      <button class="btn brass" id="s-save">Save &amp; test</button>
+      <button class="btn" id="s-now">Sync now</button>
+    </div>
+    <div class="row-btns" style="margin-top:8px">
+      <button class="btn ghost" id="s-restore">Restore from repo</button>
+      <button class="btn ghost" id="s-off">Turn off</button>
+    </div>
+    <div class="tiny" id="s-msg" style="text-align:left;margin-top:14px">${Sync.cfg ? "Configured. Status: "+esc(Sync.status)+(Sync.lastErr?" ("+esc(Sync.lastErr)+")":"") : "Not configured. Token stays on this device."}</div>
+    <div id="s-confirm"></div>`;
+  const msg = t => { document.getElementById("s-msg").textContent = t; };
+  document.getElementById("back").onclick = ()=>{ view={screen:"picker"}; window.scrollTo(0,0); render(); };
+  document.getElementById("s-save").onclick = async ()=>{
+    const g = id => document.getElementById(id).value.trim();
+    const cfg = { owner:g("f-owner"), repo:g("f-repo"), branch:g("f-branch")||"main",
+                  path:g("f-path")||"gym-log.json", token:g("f-token") };
+    if(!cfg.owner||!cfg.repo||!cfg.token){ msg("Owner, repo and token are required."); return; }
+    Sync.saveCfg(cfg); msg("Testing\u2026");
+    try{ const got = await Sync.fetchSha();
+         msg(got.exists ? "Connected. Log file found; Sync now will update it."
+                        : "Connected. No log file yet; first sync creates it."); }
+    catch(e){ msg(e && e.auth ? "Token rejected. Check scope: contents read/write on this repo."
+                              : "Connection failed: "+(e.message||e)); }
+    paintBadges();
+  };
+  document.getElementById("s-now").onclick = async ()=>{
+    if(!Sync.cfg){ msg("Configure first."); return; }
+    Sync.dirty = true; msg("Syncing\u2026"); await Sync.flush();
+    msg(Sync.status==="synced" ? "Synced." : "Sync failed: "+Sync.lastErr);
+  };
+  document.getElementById("s-off").onclick = ()=>{ Sync.clearCfg(); render(); };
+  document.getElementById("s-restore").onclick = ()=>{
+    const box = document.getElementById("s-confirm");
+    box.innerHTML = `<div class="confirm"><p>Replace the log on THIS device with the repo copy? Local-only records will be lost.</p>
+      <div class="row-btns"><button class="btn" id="rest-yes">Replace</button>
+      <button class="btn ghost" id="rest-no">Cancel</button></div></div>`;
+    document.getElementById("rest-no").onclick = ()=>{ box.innerHTML=""; };
+    document.getElementById("rest-yes").onclick = async ()=>{
+      box.innerHTML=""; msg("Pulling\u2026");
+      try{
+        const remote = await Sync.pull();
+        if(!remote){ msg("No log file in the repo yet."); return; }
+        S = Object.assign({log:[],order:{},lastSession:null,fill:{}}, remote);
+        Store.write(S); msg("Restored: "+S.log.length+" records."); paintBadges();
+      }catch(e){ msg("Restore failed: "+(e && e.auth ? "token rejected" : (e.message||e))); }
+    };
+  };
+  paintBadges();
+}
+
+/* ---------- analytics ---------- */
+const EXCAT = {};
+Object.values(SESSIONS).forEach(s => s.ex.forEach(e => { EXCAT[e.n] = e.cat; }));
+function weeklyVolume(){
+  const cutoff = new Date(new Date(today()) - 6*86400000).toISOString().slice(0,10);
+  const counts = { squat:0, hinge:0, push:0, pull:0 };
+  let skips = 0;
+  S.log.forEach(r => {
+    if(r.date < cutoff) return;
+    if(r.status==="skipped"){ skips++; return; }
+    const c = EXCAT[r.exercise];
+    if(c) counts[c]++;
+  });
+  return { counts, skips };
+}
+function skipCount(exName){
+  return S.log.filter(r => r.exercise===exName && r.status==="skipped").length;
+}
+/* Stall: this session's top load equals the previous two sessions' top loads
+   and today's final-set RPE is 8+. Suggest a 10% deload rounded to increment. */
+function stallCheck(ex){
+  const hist = exerciseHistory(ex.n);              // includes today once logged
+  if(hist.length < 3) return null;
+  const last3 = hist.slice(-3);
+  const t = last3[2];
+  if(t.date !== today()) return null;
+  const sameLoad = last3.every(h => h.topLoad === t.topLoad) && t.topLoad > 0;
+  if(!sameLoad || t.rpe === null || t.rpe < 8) return null;
+  const inc = ex.inc || 2.5;
+  const deload = Math.max(inc, Math.round((t.topLoad*0.9)/inc)*inc);
+  return { load: t.topLoad, deload };
+}
+
+/* ---------- history ---------- */
+function exerciseHistory(name){
+  const recs = S.log.filter(r => r.exercise===name && r.status==="completed");
+  const dates = [...new Set(recs.map(r=>r.date))].sort();
+  return dates.map(d=>{
+    const sets = recs.filter(r=>r.date===d).sort((a,b)=>a.setNumber-b.setNumber);
+    const top = sets[sets.length-1];
+    return { date:d, sets, topLoad: top.load===null?0:top.load, rpe: top.rpe };
+  });
+}
+function allTrainedExercises(){
+  const names = [...new Set(S.log.map(r=>r.exercise))];   // skips included:
+  return names.map(n=>{                                   // a lift only ever skipped
+    const h = exerciseHistory(n);                         // must stay visible
+    const lastDate = S.log.filter(r=>r.exercise===n).map(r=>r.date).sort().pop();
+    return { n, last:h[h.length-1]||null, sessions:h.length, lastDate };
+  }).sort((a,b)=> b.lastDate.localeCompare(a.lastDate));
+}
+function renderHistory(){
+  const exs = allTrainedExercises();
+  app.innerHTML = `
+    <header class="mast" style="border:none;padding-bottom:0;margin-bottom:0">
+      <button class="back" id="back">&larr; Sessions</button><div class="rule"></div>
+      <span class="lbl" id="saveState"></span></header>
+    <div class="shead" style="margin-top:10px">
+      <span style="flex:1"><span style="font-size:15px">History</span><br>
+      <span class="lbl">${S.log.length} records stored${Store.lastSavedAt ? " &middot; saved "+Store.lastSavedAt.toTimeString().slice(0,5) : ""}</span></span>
+    </div>
+    <div class="progress-line"><span style="width:100%"></span></div>
+    ${(()=>{ const wv = weeklyVolume();
+      return `<div class="last" style="margin-top:2px">
+        <span class="lbl" style="display:block;margin-bottom:3px">Sets, last 7 days</span>
+        <b>Squat ${wv.counts.squat}</b> &middot; <b>Hinge ${wv.counts.hinge}</b> &middot;
+        <b>Push ${wv.counts.push}</b> &middot; <b>Pull ${wv.counts.pull}</b>
+        ${wv.skips ? ' &middot; <span style="color:#B0674F">skipped '+wv.skips+'</span>' : ""}
+      </div>`; })()}
+    <div id="hrows">${exs.length ? "" : '<div class="lbl" style="padding:20px 0">Nothing logged yet.</div>'}</div>`;
+  const rows = document.getElementById("hrows");
+  exs.forEach(e=>{
+    const div = document.createElement("div");
+    div.className = "ex";
+    div.innerHTML = `<div class="ex-head"><button class="ex-main">
+      <span class="ex-name">${esc(e.n)}</span>
+      <span class="ex-target">${e.last ? (e.last.topLoad?fmt(e.last.topLoad)+" kg":"BW")+" &middot; "+e.sessions+"s" : "never done"}${(()=>{const k=skipCount(e.n);return k?" &middot; <span style=\"color:#B0674F\">skip "+k+"</span>":"";})()}</span>
+      </button></div>`;
+    div.querySelector(".ex-main").onclick = ()=>{ view={screen:"exdetail", exercise:e.n}; window.scrollTo(0,0); render(); };
+    rows.appendChild(div);
+  });
+  document.getElementById("back").onclick = ()=>{ view={screen:"picker"}; window.scrollTo(0,0); render(); };
+  paintBadges();
+}
+function loadChartSVG(hist){
+  const pts = hist.map(h=>h.topLoad);
+  if(pts.length < 2) return '<div class="lbl" style="padding:8px 0 14px">Chart appears after two sessions.</div>';
+  const W=440, H=120, P=8;
+  const min = Math.min(...pts), max = Math.max(...pts);
+  const span = (max-min) || 1;
+  const x = i => P + i*(W-2*P)/(pts.length-1);
+  const y = v => H-P - (v-min)*(H-2*P)/span;
+  const line = pts.map((v,i)=>(i?"L":"M")+x(i).toFixed(1)+" "+y(v).toFixed(1)).join(" ");
+  const dots = pts.map((v,i)=>`<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="#D4A24C"/>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;margin:6px 0 4px">
+    <path d="${line}" fill="none" stroke="#D4A24C" stroke-width="2"/>${dots}
+    <text x="${P}" y="12" fill="#8B939D" font-size="10" font-family="monospace">${fmt(max)} kg</text>
+    <text x="${P}" y="${H-2}" fill="#8B939D" font-size="10" font-family="monospace">${fmt(min)} kg</text>
+  </svg>`;
+}
+function renderExDetail(){
+  const name = view.exercise;
+  const hist = exerciseHistory(name);
+  app.innerHTML = `
+    <header class="mast" style="border:none;padding-bottom:0;margin-bottom:0">
+      <button class="back" id="back">&larr; History</button><div class="rule"></div>
+      <span class="lbl" id="saveState"></span></header>
+    <div class="shead" style="margin-top:10px">
+      <span style="flex:1"><span style="font-size:15px">${esc(name)}</span><br>
+      <span class="lbl">Final-set load by session</span></span>
+    </div>
+    ${loadChartSVG(hist)}
+    <div id="drows"></div>`;
+  const rows = document.getElementById("drows");
+  hist.slice().reverse().forEach(h=>{
+    const div = document.createElement("div");
+    div.className = "set logged";
+    div.style.marginBottom = "8px";
+    div.innerHTML = `<span class="n" style="width:auto;margin-right:8px">${esc(h.date)}</span>
+      <span class="vals">${h.sets.map(s0 =>
+        (s0.load===null?"BW":fmt(s0.load)) + "&times;" + s0.reps).join('<span class="dim"> &middot; </span>')}
+      ${h.rpe!==null?`<span class="dim"> &middot; RPE </span>${fmt(h.rpe)}`:""}</span>`;
+    rows.appendChild(div);
+  });
+  document.getElementById("back").onclick = ()=>{ view={screen:"history"}; window.scrollTo(0,0); render(); };
+  paintBadges();
 }
 
 function renderSession(){
@@ -699,14 +1018,32 @@ function exBody(s, ex, st){
       box.innerHTML = `<span class="lbl">Next time</span>
         <div class="v-txt">Hit it. Add a rep or slow the eccentric.</div>`;
     } else {
-      const why = sets[sets.length-1].rpe===null ? "No RPE logged" :
-                  sets[sets.length-1].rpe>8 ? "RPE above 8" : "Reps short of target";
-      box.innerHTML = `<span class="lbl">Next time</span>
-        <div class="v-txt">${why}. Repeat ${v.base===0?"bodyweight":fmt(v.base)+" kg"}.</div>`;
+      const stall = stallCheck(ex);
+      if(stall){
+        const cur = sets[sets.length-1].nextLoad;
+        box.innerHTML = `<span class="lbl">Stalled</span>
+          <div class="v-txt">Three sessions at ${fmt(stall.load)} kg with RPE 8+.
+          Grinding the same weight harder is not progression.</div>
+          <div class="row-btns">
+            <button class="btn ${cur===stall.deload?"brass":""}" data-v="deload">Deload to ${fmt(stall.deload)}</button>
+            <button class="btn ${cur===stall.load?"brass":""}" data-v="hold">Keep ${fmt(stall.load)}</button>
+          </div>`;
+        box.querySelectorAll("[data-v]").forEach(b=>b.onclick=()=>{
+          setNextLoad(s, ex, b.dataset.v==="deload" ? stall.deload : stall.load); render();
+        });
+        box.dataset.appended = "1";
+      } else {
+        const why = sets[sets.length-1].rpe===null ? "No RPE logged" :
+                    sets[sets.length-1].rpe>8 ? "RPE above 8" : "Reps short of target";
+        box.innerHTML = `<span class="lbl">Next time</span>
+          <div class="v-txt">${why}. Repeat ${v.base===0?"bodyweight":fmt(v.base)+" kg"}.</div>`;
+      }
     }
-    box.querySelectorAll("[data-v]").forEach(b=>b.onclick=()=>{
-      setNextLoad(s, ex, b.dataset.v==="up" ? v.suggested : v.base); render();
-    });
+    if(!box.dataset.appended){
+      box.querySelectorAll("[data-v]").forEach(b=>b.onclick=()=>{
+        setNextLoad(s, ex, b.dataset.v==="up" ? v.suggested : v.base); render();
+      });
+    }
     wrap.appendChild(box);
   }
 
@@ -739,24 +1076,44 @@ if ("serviceWorker" in navigator && location.protocol === "https:") {
 }
 
 /* ---------- boot ---------- */
-function paintSaveBadge(status){
+function paintBadges(){
   const el = document.getElementById("saveState");
   if(!el) return;
-  el.classList.toggle("bad", status==="failed" || status==="nostore");
-  el.textContent = status==="saving" ? "saving" :
-                   status==="saved"  ? "saved"  :
-                   status==="failed" ? "save failed" :
-                   status==="nostore"? "no store" : "";
+  const s = Store.status;
+  let txt = s==="saving" ? "saving" : s==="saved" ? "saved" :
+            s==="failed" ? "save failed" : s==="nostore" ? "no store" : "";
+  let bad = (s==="failed" || s==="nostore");
+  if(Sync.cfg){
+    const y = Sync.status;
+    const ytxt = y==="pending" ? "sync queued" : y==="syncing" ? "syncing" :
+                 y==="synced" ? "synced "+(Sync.lastAt?Sync.lastAt.toTimeString().slice(0,5):"") :
+                 y==="failed" ? "sync failed" : y==="auth" ? "sync auth" : "";
+    if(ytxt) txt = txt ? txt+" &middot; "+ytxt : ytxt;
+    bad = bad || y==="failed" || y==="auth";
+  }
+  el.classList.toggle("bad", bad);
+  el.innerHTML = txt;
 }
-Store.onStatus = paintSaveBadge;
+function paintSaveBadge(){ paintBadges(); }
+Store.onStatus = paintBadges;
 
 (async function(){
   render();                                   // paint immediately, don't block on storage
-  await Store.waitForHost(4000);              // host may inject window.storage late
+  if(navigator.storage && navigator.storage.persist)
+    navigator.storage.persist().catch(()=>{}); // ask browser not to evict our data
+  await Store.waitForHost(4000);
   const saved = await Store.read();
-  if(saved){ S = Object.assign({log:[],order:{},lastSession:null}, saved); }
+  if(saved){ S = Object.assign({log:[],order:{},lastSession:null,fill:{}}, saved); }
+  Sync.loadCfg();
+  if(Sync.cfg && S.log.length===0){            // fresh device: adopt the repo copy
+    try{ const remote = await Sync.pull();
+         if(remote && remote.log && remote.log.length){
+           S = Object.assign({log:[],order:{},lastSession:null,fill:{}}, remote);
+           Store.write(S);
+         } }catch(e){}
+  }
   if(Store.status==="init") Store._setStatus(Store.available ? "saved" : "nostore");
-  render(); paintSaveBadge(Store.status);
+  render(); paintBadges();
 })();
 </script>
 </body>

@@ -1,5 +1,5 @@
 /* Cache-first offline worker. Bump VERSION when index.html changes. */
-const VERSION = "gt-v1";
+const VERSION = "gt-v3";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {
